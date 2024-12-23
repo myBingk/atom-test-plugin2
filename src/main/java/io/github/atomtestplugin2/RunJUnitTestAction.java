@@ -85,7 +85,6 @@ public class RunJUnitTestAction extends AnAction {
             return;
         }
 
-        PsiModifierList modifierList = method.getModifierList();
         // 检查方法是否为 public
         if (!method.hasModifierProperty(PsiModifier.PUBLIC)) {
             Messages.showMessageDialog(project, "Selected method is not public. Please select a public method.", "Error", Messages.getErrorIcon());
