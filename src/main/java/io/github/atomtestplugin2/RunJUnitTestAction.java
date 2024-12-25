@@ -106,6 +106,24 @@ public class RunJUnitTestAction extends AnAction {
             return;
         }
 
+        JavaPsiFacade javaPsiFacade = JavaPsiFacade.getInstance(project);
+        PsiClass dynamicBeanLoadingClass = javaPsiFacade.findClass(
+            "com.seaseller.lazmore.test.annonation.DynamicBeanLoading",
+            GlobalSearchScope.allScope(project)
+        );
+        if (dynamicBeanLoadingClass == null) {
+            Messages.showMessageDialog(project,
+                "尚未引入lazmore-test依赖，请引入以下依赖后继续操作：\n<dependency>\n"
+                    + "            <groupId>com.seaseller</groupId>\n"
+                    + "            <artifactId>lazmore-test</artifactId>\n"
+                    + "            <version>1.0-SNAPSHOT</version>\n"
+                    + "        </dependency>",
+                "Error",
+                Messages.getErrorIcon()
+            );
+            return;
+        }
+
         // 获取类的包名
         PsiPackage psiPackage = null;
         if (containingClass.getContainingFile().getParent() != null) {
