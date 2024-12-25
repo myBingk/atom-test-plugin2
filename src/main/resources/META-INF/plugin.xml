@@ -11,7 +11,6 @@
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.xdebugger</depends>
     <depends>com.intellij.java</depends>
-    <depends>com.intellij.modules.idea.community</depends>
     <depends>JUnit</depends>
 
     <actions>

@@ -1,5 +1,6 @@
 package io.github.atomtestplugin2;
 
+import com.intellij.debugger.ui.breakpoints.JavaLineBreakpointType;
 import com.intellij.execution.*;
 import com.intellij.execution.executors.DefaultDebugExecutor;
 import com.intellij.execution.junit.JUnitConfiguration;
@@ -14,9 +15,6 @@ import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.LangDataKeys;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.WriteCommandAction;
-import com.intellij.openapi.compiler.CompileContext;
-import com.intellij.openapi.compiler.CompileStatusNotification;
-import com.intellij.openapi.compiler.CompilerManager;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileChooser.FileChooser;
@@ -26,7 +24,6 @@ import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ModuleRootManager;
-import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.ui.DialogBuilder;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
@@ -45,16 +42,19 @@ import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.core.GridLayoutManager;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.ui.JBUI;
-import com.intellij.xdebugger.impl.XSourcePositionImpl;
-import com.intellij.xdebugger.impl.breakpoints.XBreakpointUtil;
+import com.intellij.xdebugger.XDebuggerManager;
+import com.intellij.xdebugger.XDebuggerUtil;
+import com.intellij.xdebugger.breakpoints.XBreakpointManager;
+import com.intellij.xdebugger.breakpoints.XLineBreakpoint;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.java.debugger.breakpoints.properties.JavaLineBreakpointProperties;
 
 import javax.swing.*;
 import java.awt.*;
 import java.io.IOException;
 import java.util.List;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * @author zhang kangkang
@@ -87,7 +87,11 @@ public class RunJUnitTestAction extends AnAction {
 
         // 检查方法是否为 public
         if (!method.hasModifierProperty(PsiModifier.PUBLIC)) {
-            Messages.showMessageDialog(project, "Selected method is not public. Please select a public method.", "Error", Messages.getErrorIcon());
+            Messages.showMessageDialog(project,
+                "Selected method is not public. Please select a public method.",
+                "Error",
+                Messages.getErrorIcon()
+            );
             return;
         }
 
@@ -131,8 +135,9 @@ public class RunJUnitTestAction extends AnAction {
             mainClassField.setPreferredSize(new Dimension(300, mainClassField.getPreferredSize().height));
             JButton mainClassButton = new JButton("选择类");
             mainClassButton.addActionListener(event -> {
-                TreeClassChooser chooser = TreeClassChooserFactory.getInstance(project)
-                    .createWithInnerClassesScopeChooser("请选择项目启动类，即带有SpringBootApplication注解的类",
+                TreeClassChooser chooser =
+                    TreeClassChooserFactory.getInstance(project).createWithInnerClassesScopeChooser(
+                        "请选择项目启动类，即带有SpringBootApplication注解的类",
                         GlobalSearchScope.allScope(project),
                         null,
                         null
@@ -256,10 +261,10 @@ public class RunJUnitTestAction extends AnAction {
     }
 
     private void runTestMethod(PsiMethod method,
-                           Project project,
-                           PsiClass existTestClass,
-                           PsiClass containingClass,
-                           Module module) {
+                               Project project,
+                               PsiClass existTestClass,
+                               PsiClass containingClass,
+                               Module module) {
         // 创建弹框
         DialogBuilder dialogBuilder = new DialogBuilder(project);
         dialogBuilder.setTitle("Run JUnit Test");
@@ -304,8 +309,7 @@ public class RunJUnitTestAction extends AnAction {
 
             for (JTextField paramTextField : paramTextFieldList) {
                 if (paramTextField.getText() == null) {
-                    Messages.showMessageDialog(
-                        project,
+                    Messages.showMessageDialog(project,
                         "请输入参数：" + paramTextField.getName(),
                         "Error",
                         Messages.getErrorIcon()
@@ -315,8 +319,7 @@ public class RunJUnitTestAction extends AnAction {
             }
 
             // 在测试类中查找或创建测试方法
-            PsiMethod testMethod =
-                findOrCreateTestMethod(existTestClass, method, containingClass, paramTextFieldList);
+            PsiMethod testMethod = findOrCreateTestMethod(existTestClass, method, containingClass, paramTextFieldList);
             if (testMethod == null) {
                 Messages.showMessageDialog(project, "创建测试方法失败", "Error", Messages.getErrorIcon());
                 return;
@@ -355,14 +358,20 @@ public class RunJUnitTestAction extends AnAction {
         if (editor == null || !editor.getDocument().equals(document)) {
             return;
         }
-        // 切换行断点
-        XBreakpointUtil.toggleLineBreakpoint(project,
-            XSourcePositionImpl.create(psiFile.getVirtualFile(), startLine),
-            editor,
-            false,
-            true,
-            false
-        );
+
+        XBreakpointManager breakpointManager = XDebuggerManager.getInstance(project).getBreakpointManager();
+        JavaLineBreakpointType lineBreakpointType =
+            XDebuggerUtil.getInstance().findBreakpointType(JavaLineBreakpointType.class);
+
+        @NotNull Collection<XLineBreakpoint<JavaLineBreakpointProperties>> existBreakPoint =
+            breakpointManager.findBreakpointsAtLine(lineBreakpointType, psiFile.getVirtualFile(), startLine);
+        if (existBreakPoint.isEmpty()) {
+            breakpointManager.addLineBreakpoint(lineBreakpointType,
+                psiFile.getVirtualFile().getUrl(),
+                startLine,
+                lineBreakpointType.createProperties()
+            );
+        }
     }
 
     private RunnerAndConfigurationSettings createJUnitConfiguration(PsiMethod method,
@@ -684,14 +693,14 @@ public class RunJUnitTestAction extends AnAction {
             return method;
         }
 
-        WriteCommandAction.runWriteCommandAction(testClass.getProject(), (Computable<PsiMethod>) () -> {
+        WriteCommandAction.runWriteCommandAction(testClass.getProject(), (Computable<PsiMethod>)() -> {
             // Create test method
-            PsiMethod newTestMethod = PsiElementFactory.getInstance(testClass.getProject())
-                .createMethod(testMethodName, PsiTypes.voidType());
+            PsiMethod newTestMethod =
+                PsiElementFactory.getInstance(testClass.getProject()).createMethod(testMethodName, PsiTypes.voidType());
             newTestMethod.getModifierList().addAnnotation("org.junit.Test");
 
-            newTestMethod.getThrowsList().add(PsiElementFactory.getInstance(testClass.getProject())
-                .createReferenceFromText("Exception", null));
+            newTestMethod.getThrowsList()
+                .add(PsiElementFactory.getInstance(testClass.getProject()).createReferenceFromText("Exception", null));
 
             // Add method body to invoke the original method
             StringBuilder methodBody = new StringBuilder();
@@ -765,7 +774,11 @@ public class RunJUnitTestAction extends AnAction {
         // 验证创建的方法是否正确
         PsiMethod verifiedMethod = testClass.findMethodsByName(testMethodName, false)[0];
         if (verifiedMethod == null || !verifiedMethod.getName().equals(testMethodName)) {
-            Messages.showMessageDialog(testClass.getProject(), "Failed to create test method", "Error", Messages.getErrorIcon());
+            Messages.showMessageDialog(testClass.getProject(),
+                "Failed to create test method",
+                "Error",
+                Messages.getErrorIcon()
+            );
             return null;
         }
 
