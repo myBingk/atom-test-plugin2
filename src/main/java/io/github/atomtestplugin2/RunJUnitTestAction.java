@@ -108,15 +108,15 @@ public class RunJUnitTestAction extends AnAction {
 
         JavaPsiFacade javaPsiFacade = JavaPsiFacade.getInstance(project);
         PsiClass dynamicBeanLoadingClass = javaPsiFacade.findClass(
-            "com.seaseller.lazmore.test.annonation.DynamicBeanLoading",
+            "io.github.atom.test.annonation.DynamicBeanLoading",
             GlobalSearchScope.allScope(project)
         );
         if (dynamicBeanLoadingClass == null) {
             Messages.showMessageDialog(project,
                 "尚未引入lazmore-test依赖，请引入以下依赖后继续操作：\n<dependency>\n"
-                    + "            <groupId>com.seaseller</groupId>\n"
-                    + "            <artifactId>lazmore-test</artifactId>\n"
-                    + "            <version>1.0-SNAPSHOT</version>\n"
+                    + "            <groupId>io.github</groupId>\n"
+                    + "            <artifactId>atom-test</artifactId>\n"
+                    + "            <version>1.0</version>\n"
                     + "        </dependency>",
                 "Error",
                 Messages.getErrorIcon()
@@ -500,7 +500,7 @@ public class RunJUnitTestAction extends AnAction {
             String mainClassName = mainClass.getName();
 
             PsiClass dynamicBeanLoadingClass = javaPsiFacade.findClass(
-                "com.seaseller.lazmore.test.annonation.DynamicBeanLoading",
+                "io.github.atom.test.annonation.DynamicBeanLoading",
                 GlobalSearchScope.allScope(project)
             );
             if (dynamicBeanLoadingClass != null) {
@@ -532,14 +532,14 @@ public class RunJUnitTestAction extends AnAction {
             newClass.add(dynamicResourceField);
 
             PsiClass dynamicResourceClass = javaPsiFacade.findClass(
-                "com.seaseller.lazmore.test.annonation.DynamicResource",
+                "io.github.atom.test.annonation.DynamicResource",
                 GlobalSearchScope.allScope(project)
             );
             if (dynamicResourceClass != null) {
                 javaFile.getImportList().add(elementFactory.createImportStatement(dynamicResourceClass));
             }
 
-            PsiClass baseClass = javaPsiFacade.findClass("com.seaseller.lazmore.test.FastDynamicBeanLoadingTest",
+            PsiClass baseClass = javaPsiFacade.findClass("io.github.atom.test.FastDynamicBeanLoadingTest",
                 GlobalSearchScope.allScope(project)
             );
             if (baseClass != null) {
