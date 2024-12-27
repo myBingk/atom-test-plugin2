@@ -114,9 +114,9 @@ public class RunJUnitTestAction extends AnAction {
         if (dynamicBeanLoadingClass == null) {
             Messages.showMessageDialog(project,
                 "尚未引入lazmore-test依赖，请引入以下依赖后继续操作：\n<dependency>\n"
-                    + "            <groupId>io.github</groupId>\n"
+                    + "            <groupId>io.github.mybink</groupId>\n"
                     + "            <artifactId>atom-test</artifactId>\n"
-                    + "            <version>1.0</version>\n"
+                    + "            <version>1.0.0</version>\n"
                     + "        </dependency>",
                 "Error",
                 Messages.getErrorIcon()
