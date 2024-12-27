@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>io.github</id>
     <name>SpringAtomTest</name>
-    <version>1.0-Stable</version>
+    <version>1.1-Stable</version>
     <vendor email="1521506029@qq.com" url="https://github.com/myBingk">bingk</vendor>
 
     <description>
