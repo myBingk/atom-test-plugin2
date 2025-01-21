@@ -37,6 +37,7 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.rt.execution.junit.RepeatCount;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBLabel;
+import com.intellij.ui.components.JBScrollPane;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.core.GridLayoutManager;
@@ -51,6 +52,7 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.java.debugger.breakpoints.properties.JavaLineBreakpointProperties;
 
 import javax.swing.*;
+import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.io.IOException;
 import java.util.List;
@@ -87,7 +89,8 @@ public class RunJUnitTestAction extends AnAction {
 
         // 检查方法是否为 public
         if (!method.hasModifierProperty(PsiModifier.PUBLIC)) {
-            Messages.showMessageDialog(project,
+            Messages.showMessageDialog(
+                project,
                 "Selected method is not public. Please select a public method.",
                 "Error",
                 Messages.getErrorIcon()
@@ -98,7 +101,8 @@ public class RunJUnitTestAction extends AnAction {
         // 获取方法所在的类
         PsiClass containingClass = method.getContainingClass();
         if (containingClass == null) {
-            Messages.showMessageDialog(project,
+            Messages.showMessageDialog(
+                project,
                 "Method is not contained in a class.",
                 "Error",
                 Messages.getErrorIcon()
@@ -112,7 +116,8 @@ public class RunJUnitTestAction extends AnAction {
             GlobalSearchScope.allScope(project)
         );
         if (dynamicBeanLoadingClass == null) {
-            Messages.showMessageDialog(project,
+            Messages.showMessageDialog(
+                project,
                 "尚未引入lazmore-test依赖，请引入以下依赖后继续操作：\n<dependency>\n"
                     + "            <groupId>io.github.mybingk</groupId>\n"
                     + "            <artifactId>atom-test</artifactId>\n"
@@ -246,7 +251,8 @@ public class RunJUnitTestAction extends AnAction {
                 }
 
                 // 在 src/main/test 目录下查找或创建测试类
-                PsiClass testClass = findOrCreateTestClass(project,
+                PsiClass testClass = findOrCreateTestClass(
+                    project,
                     module,
                     packageName,
                     containingClass.getName(),
@@ -291,10 +297,10 @@ public class RunJUnitTestAction extends AnAction {
         PsiParameter[] parameters = parameterList.getParameters();
 
         // 创建UI组件
-        JPanel panel = new JPanel(new GridLayoutManager(parameters.length, 3, new Insets(10, 10, 10, 10), -1, -1));
+        JPanel panel = new JPanel(new GridLayoutManager(parameters.length + 1, 3, new Insets(10, 10, 10, 10), -1, -1));
 
         int row = 0;
-        List<JTextField> paramTextFieldList = new ArrayList<>();
+        List<JTextComponent> paramTextFieldList = new ArrayList<>();
         for (PsiParameter parameter : parameters) {
             String paramName = parameter.getName();
             PsiType paramType = parameter.getType();
@@ -306,14 +312,33 @@ public class RunJUnitTestAction extends AnAction {
             paramLabelBox.add(paramLabel);
             paramLabelBox.setPreferredSize(new Dimension(150, paramLabelBox.getPreferredSize().height));
 
-            // 创建参数文本框
-            JTextField paramField = new JTextField();
-            paramField.setName(paramName);
-            paramTextFieldList.add(paramField);
-            paramField.setPreferredSize(new Dimension(300, paramField.getPreferredSize().height));
-            addComponentToPanel(panel, paramLabelBox, row, 0);
-            addComponentToPanel(panel, paramField, row, 1);
+            if (isPrimitiveType(paramType)) {
 
+                // 创建参数文本框
+                JTextField paramField = new JTextField();
+                paramField.setName(paramName);
+                paramTextFieldList.add(paramField);
+                paramField.setPreferredSize(new Dimension(300, paramField.getPreferredSize().height));
+                addComponentToPanel(panel, paramLabelBox, row, 0);
+                addComponentToPanel(panel, paramField, row, 1);
+            } else {
+
+                // 添加一个大的文本框让用户输入 JSON 格式的字符串
+                JTextArea jsonTextArea = new JTextArea();
+                jsonTextArea.setName(paramName);
+                jsonTextArea.setLineWrap(true);
+                jsonTextArea.setWrapStyleWord(true);
+                paramTextFieldList.add(jsonTextArea);
+                JBScrollPane scrollPane = new JBScrollPane(jsonTextArea);
+                scrollPane.setPreferredSize(new Dimension(300, 100));
+
+                // 生成占位符 JSON 并设置为初始文本
+                String placeholderJson = generatePlaceholderJsonFromPsiType(paramType);
+                jsonTextArea.setText(placeholderJson);
+
+                addComponentToPanel(panel, paramLabel, row, 0);
+                addComponentToPanel(panel, scrollPane, row, 1);
+            }
             row++;
         }
 
@@ -325,9 +350,10 @@ public class RunJUnitTestAction extends AnAction {
         // 显示弹框并获取用户输入
         if (dialogBuilder.show() == DialogWrapper.OK_EXIT_CODE) {
 
-            for (JTextField paramTextField : paramTextFieldList) {
-                if (paramTextField.getText() == null) {
-                    Messages.showMessageDialog(project,
+            for (JTextComponent paramTextField : paramTextFieldList) {
+                if (paramTextField.getText() == null || paramTextField.getText().trim().isEmpty()) {
+                    Messages.showMessageDialog(
+                        project,
                         "请输入参数：" + paramTextField.getName(),
                         "Error",
                         Messages.getErrorIcon()
@@ -337,7 +363,8 @@ public class RunJUnitTestAction extends AnAction {
             }
 
             // 在测试类中查找或创建测试方法
-            PsiMethod testMethod = findOrCreateTestMethod(existTestClass, method, containingClass, paramTextFieldList);
+            PsiMethod testMethod =
+                findOrCreateTestMethod(existTestClass, method, containingClass, paramTextFieldList);
             if (testMethod == null) {
                 Messages.showMessageDialog(project, "创建测试方法失败", "Error", Messages.getErrorIcon());
                 return;
@@ -350,6 +377,25 @@ public class RunJUnitTestAction extends AnAction {
                 createJUnitConfiguration(testMethod, project, module);
             runConfiguration(configurationSettings, project);
         }
+    }
+
+    private String generatePlaceholderJsonFromPsiType(PsiType paramType) {
+        if (isListOrArrayType(paramType)) {
+            return "[{}]";
+        } else if (paramType instanceof PsiClassType classType) {
+            PsiClass resolvedClass = classType.resolve();
+            StringBuilder builder = new StringBuilder("{");
+            if (resolvedClass != null) {
+                for (PsiField field : resolvedClass.getFields()) {
+                    if (!field.hasModifierProperty(PsiModifier.STATIC)) {
+                        builder.append("\n").append("  ").append("\"").append(field.getName()).append("\":,");
+                    }
+                }
+            }
+            builder.append("\n}");
+            return builder.toString();
+        }
+        return "{}";
     }
 
     public static void setBreakpointAtFirstLine(Project project, PsiMethod method) {
@@ -384,7 +430,8 @@ public class RunJUnitTestAction extends AnAction {
         @NotNull Collection<XLineBreakpoint<JavaLineBreakpointProperties>> existBreakPoint =
             breakpointManager.findBreakpointsAtLine(lineBreakpointType, psiFile.getVirtualFile(), startLine);
         if (existBreakPoint.isEmpty()) {
-            breakpointManager.addLineBreakpoint(lineBreakpointType,
+            breakpointManager.addLineBreakpoint(
+                lineBreakpointType,
                 psiFile.getVirtualFile().getUrl(),
                 startLine,
                 lineBreakpointType.createProperties()
@@ -400,7 +447,7 @@ public class RunJUnitTestAction extends AnAction {
         JUnitConfigurationType type = JUnitConfigurationType.getInstance();
         RunnerAndConfigurationSettings configurationSettings =
             runManager.createConfiguration(method.getName(), type.getConfigurationFactories()[0]);
-        JUnitConfiguration configuration = (JUnitConfiguration)configurationSettings.getConfiguration();
+        JUnitConfiguration configuration = (JUnitConfiguration) configurationSettings.getConfiguration();
         configuration.setModule(module);
 
         // 使用 PsiLocation.fromPsiElement 获取 Location<PsiMethod>
@@ -423,7 +470,8 @@ public class RunJUnitTestAction extends AnAction {
             ProgramRunner<?> runner = environment.getRunner();
             runner.execute(environment);
         } catch (Exception ex) {
-            Messages.showMessageDialog(project,
+            Messages.showMessageDialog(
+                project,
                 "Failed to run configuration: " + ex.getMessage(),
                 "Error",
                 Messages.getErrorIcon()
@@ -476,79 +524,89 @@ public class RunJUnitTestAction extends AnAction {
         JavaPsiFacade javaPsiFacade = JavaPsiFacade.getInstance(project);
         PsiElementFactory elementFactory = javaPsiFacade.getElementFactory();
 
-        WriteCommandAction.runWriteCommandAction(project, (Computable<PsiClass>)() -> {
+        WriteCommandAction.runWriteCommandAction(
+            project, (Computable<PsiClass>) () -> {
 
-            PsiDirectory currentDirectory = getPsiDirectory(packageName, testDirectory);
-            if (currentDirectory == null) {
-                System.out.println("currentDirectory is null");
-                return null;
-            }
-
-            PsiClass newClass = JavaDirectoryService.getInstance().createClass(currentDirectory, testClassName);
-            if (!packageName.isEmpty()) {
-                PsiPackageStatement packageStatement = elementFactory.createPackageStatement(packageName);
-
-                // 检查是否已经存在包声明
-                PsiJavaFile javaFile = (PsiJavaFile)newClass.getContainingFile();
-                if (javaFile.getPackageStatement() == null) {
-                    newClass.addBefore(packageStatement, newClass.getFirstChild());
+                PsiDirectory currentDirectory = getPsiDirectory(packageName, testDirectory);
+                if (currentDirectory == null) {
+                    System.out.println("currentDirectory is null");
+                    return null;
                 }
+
+                PsiClass newClass = JavaDirectoryService.getInstance().createClass(currentDirectory, testClassName);
+                if (!packageName.isEmpty()) {
+                    PsiPackageStatement packageStatement = elementFactory.createPackageStatement(packageName);
+
+                    // 检查是否已经存在包声明
+                    PsiJavaFile javaFile = (PsiJavaFile) newClass.getContainingFile();
+                    if (javaFile.getPackageStatement() == null) {
+                        newClass.addBefore(packageStatement, newClass.getFirstChild());
+                    }
+                }
+
+                PsiJavaFile javaFile = (PsiJavaFile) newClass.getContainingFile();
+                Objects.requireNonNull(javaFile.getImportList()).add(elementFactory.createImportStatement(mainClass));
+                String mainClassName = mainClass.getName();
+
+                PsiClass dynamicBeanLoadingClass = javaPsiFacade.findClass(
+                    "io.github.atom.test.annonation.DynamicBeanLoading",
+                    GlobalSearchScope.allScope(project)
+                );
+                if (dynamicBeanLoadingClass != null) {
+                    javaFile.getImportList().add(elementFactory.createImportStatement(dynamicBeanLoadingClass));
+                }
+
+                PsiAnnotation dynamicBeanLoadingAnnotation = elementFactory.createAnnotationFromText(
+                    "@DynamicBeanLoading"
+                        + "(\n\tmainClass = "
+                        + mainClassName
+                        + ".class, \n\tproperties = {\""
+                        + propertiesFiles
+                        + "\"}, "
+                        + "\n\tnacosEnabled = "
+                        + nacosString
+                        + "\n)", newClass
+                );
+                Objects.requireNonNull(newClass.getModifierList())
+                    .addBefore(dynamicBeanLoadingAnnotation, newClass.getModifierList().getFirstChild());
+
+                PsiAnnotation dynamicResourceAnnotation =
+                    elementFactory.createAnnotationFromText("@DynamicResource", null);
+                PsiField dynamicResourceField = elementFactory.createFieldFromText(
+                    "private "
+                        + packageName
+                        + "."
+                        + className
+                        + " "
+                        + toLowerCaseFirstLetter(className)
+                        + ";", null
+                );
+                Objects.requireNonNull(dynamicResourceField.getModifierList())
+                    .addBefore(dynamicResourceAnnotation, dynamicResourceField.getModifierList().getFirstChild());
+                newClass.add(dynamicResourceField);
+
+                PsiClass dynamicResourceClass =
+                    javaPsiFacade.findClass(
+                        "io.github.atom.test.annonation.DynamicResource",
+                        GlobalSearchScope.allScope(project)
+                    );
+                if (dynamicResourceClass != null) {
+                    javaFile.getImportList().add(elementFactory.createImportStatement(dynamicResourceClass));
+                }
+
+                PsiClass baseClass = javaPsiFacade.findClass(
+                    "io.github.atom.test.FastDynamicBeanLoadingTest",
+                    GlobalSearchScope.allScope(project)
+                );
+                if (baseClass != null) {
+                    PsiJavaCodeReferenceElement referenceElement =
+                        elementFactory.createClassReferenceElement(baseClass);
+                    Objects.requireNonNull(newClass.getExtendsList()).add(referenceElement);
+                }
+
+                return newClass;
             }
-
-            PsiJavaFile javaFile = (PsiJavaFile)newClass.getContainingFile();
-            Objects.requireNonNull(javaFile.getImportList()).add(elementFactory.createImportStatement(mainClass));
-            String mainClassName = mainClass.getName();
-
-            PsiClass dynamicBeanLoadingClass = javaPsiFacade.findClass(
-                "io.github.atom.test.annonation.DynamicBeanLoading",
-                GlobalSearchScope.allScope(project)
-            );
-            if (dynamicBeanLoadingClass != null) {
-                javaFile.getImportList().add(elementFactory.createImportStatement(dynamicBeanLoadingClass));
-            }
-
-            PsiAnnotation dynamicBeanLoadingAnnotation = elementFactory.createAnnotationFromText("@DynamicBeanLoading"
-                + "(\n\tmainClass = "
-                + mainClassName
-                + ".class, \n\tproperties = {\""
-                + propertiesFiles
-                + "\"}, "
-                + "\n\tnacosEnabled = "
-                + nacosString
-                + "\n)", newClass);
-            Objects.requireNonNull(newClass.getModifierList())
-                .addBefore(dynamicBeanLoadingAnnotation, newClass.getModifierList().getFirstChild());
-
-            PsiAnnotation dynamicResourceAnnotation = elementFactory.createAnnotationFromText("@DynamicResource", null);
-            PsiField dynamicResourceField = elementFactory.createFieldFromText("private "
-                + packageName
-                + "."
-                + className
-                + " "
-                + toLowerCaseFirstLetter(className)
-                + ";", null);
-            Objects.requireNonNull(dynamicResourceField.getModifierList())
-                .addBefore(dynamicResourceAnnotation, dynamicResourceField.getModifierList().getFirstChild());
-            newClass.add(dynamicResourceField);
-
-            PsiClass dynamicResourceClass = javaPsiFacade.findClass(
-                "io.github.atom.test.annonation.DynamicResource",
-                GlobalSearchScope.allScope(project)
-            );
-            if (dynamicResourceClass != null) {
-                javaFile.getImportList().add(elementFactory.createImportStatement(dynamicResourceClass));
-            }
-
-            PsiClass baseClass = javaPsiFacade.findClass("io.github.atom.test.FastDynamicBeanLoadingTest",
-                GlobalSearchScope.allScope(project)
-            );
-            if (baseClass != null) {
-                PsiJavaCodeReferenceElement referenceElement = elementFactory.createClassReferenceElement(baseClass);
-                Objects.requireNonNull(newClass.getExtendsList()).add(referenceElement);
-            }
-
-            return newClass;
-        });
+        );
 
         // 验证创建的类是否正确
         PsiClass createdClass = javaPsiFacade.findClass(testClassQualifiedName, GlobalSearchScope.allScope(project));
@@ -701,7 +759,7 @@ public class RunJUnitTestAction extends AnAction {
     private PsiMethod findOrCreateTestMethod(PsiClass testClass,
                                              PsiMethod originalMethod,
                                              PsiClass containingClass,
-                                             List<JTextField> paramTextFieldList) {
+                                             List<JTextComponent> paramTextFieldList) {
 
         String testMethodName = "test" + capitalize(originalMethod.getName());
 
@@ -711,80 +769,96 @@ public class RunJUnitTestAction extends AnAction {
             return method;
         }
 
-        WriteCommandAction.runWriteCommandAction(testClass.getProject(), (Computable<PsiMethod>)() -> {
-            // Create test method
-            PsiMethod newTestMethod =
-                PsiElementFactory.getInstance(testClass.getProject()).createMethod(testMethodName, PsiTypes.voidType());
-            newTestMethod.getModifierList().addAnnotation("org.junit.Test");
+        WriteCommandAction.runWriteCommandAction(
+            testClass.getProject(), (Computable<PsiMethod>) () -> {
+                // Create test method
+                PsiMethod newTestMethod = PsiElementFactory.getInstance(testClass.getProject())
+                    .createMethod(testMethodName, PsiTypes.voidType());
+                newTestMethod.getModifierList().addAnnotation("org.junit.Test");
 
-            newTestMethod.getThrowsList()
-                .add(PsiElementFactory.getInstance(testClass.getProject()).createReferenceFromText("Exception", null));
+                newTestMethod.getThrowsList()
+                    .add(PsiElementFactory.getInstance(testClass.getProject())
+                        .createReferenceFromText("Exception", null));
 
-            // Add method body to invoke the original method
-            StringBuilder methodBody = new StringBuilder();
-            methodBody.append("{\n");
+                // Add method body to invoke the original method
+                StringBuilder methodBody = new StringBuilder();
+                methodBody.append("{\n");
 
-            // Get the parameters of the original method
-            PsiParameter[] parameters = originalMethod.getParameterList().getParameters();
-            Map<String, String> paramMap = new HashMap<>();
-            for (JTextField paramField : paramTextFieldList) {
-                paramMap.put(paramField.getName(), paramField.getText());
-            }
-            for (PsiParameter parameter : parameters) {
-                String paramName = parameter.getName();
-                PsiType paramType = parameter.getType();
+                // Get the parameters of the original method
+                PsiParameter[] parameters = originalMethod.getParameterList().getParameters();
+                Map<String, String> paramMap = new HashMap<>();
+                for (JTextComponent paramField : paramTextFieldList) {
+                    paramMap.put(paramField.getName(), paramField.getText());
+                }
 
-                // Check if the parameter is a primitive type
-                if (isPrimitiveType(paramType)) {
-                    // Prompt user for primitive input
+                for (PsiParameter parameter : parameters) {
+                    String paramName = parameter.getName();
+                    PsiType paramType = parameter.getType();
                     String userInput = paramMap.get(paramName);
-                    if (userInput != null) {
-                        methodBody.append("    ")
-                            .append(paramType.getPresentableText())
-                            .append(" ")
-                            .append(paramName)
-                            .append(" = ")
-                            .append(userInput)
-                            .append(";\n");
-                    }
-                } else {
-                    String userInput = paramMap.get(paramName);
-                    if (userInput != null) {
-                        methodBody.append("    ")
-                            .append(paramType.getPresentableText())
-                            .append(" ")
-                            .append(paramName)
-                            .append(" = com.alibaba.fastjson2.JSON.parseObject(\"")
-                            .append(userInput.replace("\"", "\\\""))
-                            .append("\", ")
-                            .append(paramType.getPresentableText())
-                            .append(".class);\n");
+                    if (isPrimitiveType(paramType)) {
+                        if (userInput != null) {
+                            methodBody.append("    ")
+                                .append(paramType.getPresentableText())
+                                .append(" ")
+                                .append(paramName)
+                                .append(" = ")
+                                .append(userInput)
+                                .append(";\n");
+                        }
+                    } else {
+                        String fullyQualifiedTypeName = paramType.getCanonicalText();
+                        String genericClassName = getGenericClassName(paramType);
+                        importClassIfNotExists(testClass, fullyQualifiedTypeName);
+                        if (isListOrArrayType(paramType)) {
+                            // Handle List or array type
+                            methodBody.append("    ")
+                                .append(fullyQualifiedTypeName)
+                                .append(" ")
+                                .append(paramName)
+                                .append(" = com.alibaba.fastjson2.JSON.parseArray(\"")
+                                .append(userInput.replace("\"", "\\\"").replace("\n", ""))
+                                .append("\", ")
+                                .append(genericClassName)
+                                .append(".class);\n");
+                        } else {
+                            String outerClassName = getOuterClassName(fullyQualifiedTypeName);
+                            // Handle other complex types
+                            methodBody.append("    ")
+                                .append(fullyQualifiedTypeName)
+                                .append(" ")
+                                .append(paramName)
+                                .append(" = com.alibaba.fastjson2.JSON.parseObject(\"")
+                                .append(userInput.replace("\"", "\\\"").replace("\n", ""))
+                                .append("\", ")
+                                .append(outerClassName)
+                                .append(".class);\n");
+                        }
                     }
                 }
-            }
 
-            methodBody.append("\t")
-                .append(toLowerCaseFirstLetter(containingClass.getName()))
-                .append(".")
-                .append(originalMethod.getName())
-                .append("(");
-            for (int i = 0; i < parameters.length; i++) {
-                if (i > 0) {
-                    methodBody.append(", ");
+                methodBody.append("\t")
+                    .append(toLowerCaseFirstLetter(containingClass.getName()))
+                    .append(".")
+                    .append(originalMethod.getName())
+                    .append("(");
+                for (int i = 0; i < parameters.length; i++) {
+                    if (i > 0) {
+                        methodBody.append(", ");
+                    }
+                    methodBody.append(parameters[i].getName());
                 }
-                methodBody.append(parameters[i].getName());
+                methodBody.append(");\n");
+                methodBody.append("}\n");
+
+                // Add the method body to the test method
+                Objects.requireNonNull(newTestMethod.getBody())
+                    .replace(PsiElementFactory.getInstance(testClass.getProject())
+                        .createCodeBlockFromText(methodBody.toString(), null));
+
+                CodeStyleManager.getInstance(testClass.getProject()).reformat(testClass.add(newTestMethod));
+                return newTestMethod;
             }
-            methodBody.append(");\n");
-            methodBody.append("}\n");
-
-            // Add the method body to the test method
-            Objects.requireNonNull(newTestMethod.getBody())
-                .replace(PsiElementFactory.getInstance(testClass.getProject())
-                    .createCodeBlockFromText(methodBody.toString(), null));
-
-            CodeStyleManager.getInstance(testClass.getProject()).reformat(testClass.add(newTestMethod));
-            return newTestMethod;
-        });
+        );
 
         // 提交所有文档更改
         commitDocment(testClass);
@@ -792,7 +866,8 @@ public class RunJUnitTestAction extends AnAction {
         // 验证创建的方法是否正确
         PsiMethod verifiedMethod = testClass.findMethodsByName(testMethodName, false)[0];
         if (verifiedMethod == null || !verifiedMethod.getName().equals(testMethodName)) {
-            Messages.showMessageDialog(testClass.getProject(),
+            Messages.showMessageDialog(
+                testClass.getProject(),
                 "Failed to create test method",
                 "Error",
                 Messages.getErrorIcon()
@@ -801,6 +876,92 @@ public class RunJUnitTestAction extends AnAction {
         }
 
         return verifiedMethod;
+    }
+
+    private String getGenericClassName(PsiType paramType) {
+        if (paramType instanceof PsiClassType) {
+            PsiClassType classType = (PsiClassType) paramType;
+            PsiType[] parameters = classType.getParameters();
+            if (parameters.length > 0) {
+                return parameters[0].getCanonicalText();
+            }
+        }
+        return null;
+    }
+
+    private boolean isListOrArrayType(PsiType paramType) {
+        if (paramType instanceof PsiArrayType) {
+            return true;
+        }
+        if (paramType instanceof PsiClassType) {
+            PsiClassType classType = (PsiClassType) paramType;
+            PsiClass resolvedClass = classType.resolve();
+            if (resolvedClass != null) {
+                return "java.util.List".equals(resolvedClass.getQualifiedName());
+            }
+        }
+        return false;
+    }
+
+    private String getOuterClassName(String fullyQualifiedTypeName) {
+        if (fullyQualifiedTypeName.contains("<")) {
+            return fullyQualifiedTypeName.substring(0, fullyQualifiedTypeName.indexOf("<"));
+        }
+        return fullyQualifiedTypeName;
+    }
+
+    private void importClassIfNotExists(PsiClass testClass, String fullyQualifiedTypeName) {
+        PsiJavaFile javaFile = (PsiJavaFile) testClass.getContainingFile();
+        PsiImportList importList = javaFile.getImportList();
+        if (importList == null) {
+            return;
+        }
+
+        // 解析泛型信息
+        List<String> classNamesToImport = new ArrayList<>();
+        if (fullyQualifiedTypeName.contains("<")) {
+            // 提取主类
+            String mainClassName = fullyQualifiedTypeName.substring(0, fullyQualifiedTypeName.indexOf("<"));
+            classNamesToImport.add(mainClassName);
+
+            // 提取泛型中的实际类
+            String genericPart = fullyQualifiedTypeName.substring(fullyQualifiedTypeName.indexOf("<") + 1, fullyQualifiedTypeName.lastIndexOf(">"));
+            String[] genericClasses = genericPart.split(",");
+            for (String genericClass : genericClasses) {
+                genericClass = genericClass.trim();
+                if (genericClass.contains("<")) {
+                    // 递归处理嵌套泛型
+                    importClassIfNotExists(testClass, genericClass);
+                } else {
+                    classNamesToImport.add(genericClass);
+                }
+            }
+        } else {
+            classNamesToImport.add(fullyQualifiedTypeName);
+        }
+
+        // 导入类
+        PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(testClass.getProject());
+        for (String className : classNamesToImport) {
+            if (isClassAlreadyImported(importList, className)) {
+                continue;
+            }
+            PsiClass classToImport = JavaPsiFacade.getInstance(testClass.getProject()).findClass(className, GlobalSearchScope.allScope(testClass.getProject()));
+            if (classToImport != null) {
+                PsiImportStatement importStatement = elementFactory.createImportStatement(classToImport);
+                importList.add(importStatement);
+            }
+        }
+    }
+
+    private boolean isClassAlreadyImported(PsiImportList importList, String className) {
+        PsiImportStatement[] importStatements = importList.getImportStatements();
+        for (PsiImportStatement importStatement : importStatements) {
+            if (className.equals(importStatement.getQualifiedName())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String capitalize(String str) {
@@ -847,18 +1008,21 @@ public class RunJUnitTestAction extends AnAction {
 
     private void addComponentToPanel(JPanel panel, Component component, int row, int col) {
 
-        panel.add(component, new GridConstraints(row,
-            col,
-            1,
-            1,
-            GridConstraints.ANCHOR_WEST,
-            GridConstraints.FILL_NONE,
-            GridConstraints.SIZEPOLICY_FIXED,
-            GridConstraints.SIZEPOLICY_FIXED,
-            null,
-            null,
-            null
-        ));
+        panel.add(
+            component, new GridConstraints(
+                row,
+                col,
+                1,
+                1,
+                GridConstraints.ANCHOR_WEST,
+                GridConstraints.FILL_NONE,
+                GridConstraints.SIZEPOLICY_FIXED,
+                GridConstraints.SIZEPOLICY_FIXED,
+                null,
+                null,
+                null
+            )
+        );
     }
 
 }
